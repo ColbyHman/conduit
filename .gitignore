@@ -1,0 +1,47 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+ai-gateway/ai-gateway
+worker/worker
+whisper-worker/whisper-worker
+
+# Go
+*.o
+*.a
+*.test
+*.out
+go.work
+
+# Go modules
+**/vendor/
+**/go.sum
+**/go.mod
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+docker-compose.override.yml
+
+# Logs
+*.log
+logs/
+
+# PostgreSQL data (volume mount)
+pg_data/

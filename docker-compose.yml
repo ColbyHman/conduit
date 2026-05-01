@@ -1,0 +1,94 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: conduit-postgres
+    environment:
+      POSTGRES_DB: conduit
+      POSTGRES_USER: conduit
+      POSTGRES_PASSWORD: conduit_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conduit"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  ai-gateway:
+    build:
+      context: ./ai-gateway
+      dockerfile: Dockerfile
+    container_name: conduit-ai-gateway
+    environment:
+      DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
+      PORT: 8080
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./ai-gateway:/app
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: ./worker
+      dockerfile: Dockerfile
+    container_name: conduit-worker
+    environment:
+      DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
+      WORKER_ID: "worker-1"
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_ENDPOINT: ${LLM_ENDPOINT:-}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./worker:/app
+    restart: unless-stopped
+
+  whisper-worker:
+    build:
+      context: ./whisper-worker
+      dockerfile: Dockerfile
+    container_name: conduit-whisper-worker
+    environment:
+      DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
+      WORKER_ID: "whisper-worker-1"
+      WHISPER_URL: ${WHISPER_URL:-http://host.docker.internal:9000}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./whisper-worker:/app
+    restart: unless-stopped
+
+  pgadmin:
+    image: dpage/pgadmin4:latest
+    container_name: conduit-pgadmin
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@conduit.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    depends_on:
+      - postgres
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    profiles:
+      - tools
+
+volumes:
+  postgres_data:
+  pgadmin_data:
+
+networks:
+  default:
+    name: conduit-network
