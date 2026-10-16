@@ -1,16 +1,23 @@
 -- Conduit initial database schema
 -- Run this manually or let PostgreSQL execute it on startup (via docker-entrypoint-initdb.d)
 
+-- Enable UUID generation
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
 -- 1. Jobs table: Worker job queue with row-level locking support
 CREATE TABLE IF NOT EXISTS jobs (
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(), -- Unique job ID
-    job_type VARCHAR(50) NOT NULL, -- 'journal_transcribe', 'journal_analyze', 'mtg_analyze'
-    status VARCHAR(20) NOT NULL DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
-    payload JSONB NOT NULL, -- Input data (audio URL, transcription text, image URL, etc.)
-    result JSONB, -- Output from LLM/Whisper
-    error TEXT, -- Error message if job fails
-    locked_at TIMESTAMP WITH TIME ZONE, -- When a worker locked this job
-    locked_by VARCHAR(255), -- Worker ID that locked the job
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),           -- Unique job ID
+    job_type VARCHAR(50) NOT NULL,                           -- 'journal_transcribe', 'journal_analyze', 'mtg_analyze'
+    status VARCHAR(20) NOT NULL DEFAULT 'pending',           -- 'pending', 'processing', 'completed', 'failed', 'dead_letter'
+    payload JSONB NOT NULL,                                  -- Input data (audio URL, transcription text, image URL, etc.)
+    result JSONB,                                            -- Output from LLM/Whisper
+    error TEXT,                                              -- Error message if job fails
+    idempotency_key VARCHAR(64),                             -- Client-provided key for exactly-once submission
+    attempt_count INT NOT NULL DEFAULT 0,                    -- Number of processing attempts
+    max_retries INT NOT NULL DEFAULT 3,                      -- Max retries before dead_letter
+    next_retry_at TIMESTAMP WITH TIME ZONE,                  -- When to retry (NULL = ready now)
+    locked_at TIMESTAMP WITH TIME ZONE,                      -- When a worker locked this job
+    locked_by VARCHAR(255),                                  -- Worker ID that locked the job
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     completed_at TIMESTAMP WITH TIME ZONE
@@ -20,33 +27,75 @@ CREATE TABLE IF NOT EXISTS jobs (
 CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_job_type ON jobs(job_type);
 CREATE INDEX IF NOT EXISTS idx_jobs_locked_at ON jobs(locked_at);
+CREATE INDEX IF NOT EXISTS idx_jobs_next_retry_at ON jobs(next_retry_at) WHERE status = 'pending';
+CREATE INDEX IF NOT EXISTS idx_jobs_dead_letter ON jobs(status) WHERE status = 'dead_letter';
+
+-- Idempotency: unique per job_type + idempotency_key (partial index, only where key is set)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_idempotency ON jobs(job_type, idempotency_key) WHERE idempotency_key IS NOT NULL;
 
 -- 2. Entries table: Stores journal entries, ideas, thoughts
 CREATE TABLE IF NOT EXISTS entries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    entry_type VARCHAR(20) NOT NULL, -- 'journal', 'idea', 'thought'
-    title VARCHAR(255), -- Optional title for the entry
-    content TEXT NOT NULL, -- Original content (transcription text, etc.)
-    summary TEXT, -- LLM-generated summary
-    analysis JSONB, -- LLM analysis results
-    source_reference VARCHAR(255), -- Link to original source (audio file path, etc.)
+    entry_type VARCHAR(20) NOT NULL,                         -- 'journal', 'idea', 'thought'
+    title VARCHAR(255),                                      -- Optional title for the entry
+    content TEXT NOT NULL,                                   -- Original content (transcription text, etc.)
+    summary TEXT,                                            -- LLM-generated summary
+    analysis JSONB,                                          -- LLM analysis results
+    source_reference VARCHAR(255),                           -- Link to original source (audio file path, job ID, etc.)
+    job_id UUID REFERENCES jobs(id),                         -- Link to originating job
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_entries_type ON entries(entry_type);
 CREATE INDEX IF NOT EXISTS idx_entries_created_at ON entries(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_entries_job_id ON entries(job_id);
 
 -- 3. Magic cards table: Stores MTG card analysis results
 CREATE TABLE IF NOT EXISTS magic_cards (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    image_url VARCHAR(500), -- Original image URL if applicable
-    image_path VARCHAR(500), -- Local stored image path if applicable
-    card_name VARCHAR(255), -- Extracted card name from LLM
-    analysis JSONB, -- LLM analysis results
-    raw_response TEXT, -- Full LLM response for debugging
+    image_url VARCHAR(500),                                  -- Original image URL if applicable
+    image_path VARCHAR(500),                                 -- Local stored image path if applicable
+    card_name VARCHAR(255),                                  -- Extracted card name from LLM
+    analysis JSONB,                                          -- LLM analysis results
+    raw_response TEXT,                                       -- Full LLM response for debugging
+    job_id UUID REFERENCES jobs(id),                         -- Link to originating job
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
 CREATE INDEX IF NOT EXISTS idx_magic_cards_created_at ON magic_cards(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_magic_cards_job_id ON magic_cards(job_id);
+
+-- 4. Job events table: Audit trail for observability (append-only)
+CREATE TABLE IF NOT EXISTS job_events (
+    id BIGSERIAL PRIMARY KEY,
+    job_id UUID NOT NULL REFERENCES jobs(id),
+    event_type VARCHAR(50) NOT NULL,                         -- 'received', 'claimed', 'processing_start', 'llm_request', 'llm_response', 'completed', 'failed', 'retry_scheduled'
+    worker_id VARCHAR(255),                                  -- Worker that generated the event
+    payload JSONB,                                           -- Event-specific data (duration_ms, tokens, error, etc.)
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_job_events_job_id ON job_events(job_id);
+CREATE INDEX IF NOT EXISTS idx_job_events_created_at ON job_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_job_events_type ON job_events(event_type);
+
+-- Function to update updated_at timestamp
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ language 'plpgsql';
+
+-- Triggers for updated_at
+CREATE TRIGGER update_jobs_updated_at BEFORE UPDATE ON jobs
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_entries_updated_at BEFORE UPDATE ON entries
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+CREATE TRIGGER update_magic_cards_updated_at BEFORE UPDATE ON magic_cards
+    FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

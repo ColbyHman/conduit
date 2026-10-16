@@ -1,0 +1,37 @@
+# Whisper Worker Configuration
+# Environment variables override these values
+
+worker:
+  id: ""  # Auto-generated if empty
+  poll_interval: 5s
+  job_types:
+    - "journal_transcribe"
+  claim_limit: 1
+  stale_lock_threshold: 5m
+
+database:
+  url: "postgres://conduit:conduit_dev@localhost:5432/conduit?sslmode=disable"
+  max_conns: 10
+  min_conns: 2
+  max_conn_lifetime: 1h
+  max_conn_idle_time: 30m
+
+whisper:
+  url: "http://host.docker.internal:9000"
+  timeout: 300s
+  default_model: "medium"
+  default_language: ""
+  default_response_format: "verbose_json"
+
+retry:
+  max_retries: 3
+  base_delay: 30s
+  max_delay: 10m
+
+logging:
+  level: "info"
+  pretty: false
+  file_path: ""
+  max_size_mb: 10
+  max_backups: 3
+  max_age_days: 7

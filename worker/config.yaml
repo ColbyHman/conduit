@@ -1,0 +1,46 @@
+# Worker Configuration
+# Environment variables override these values
+
+worker:
+  id: ""  # Auto-generated if empty
+  poll_interval: 5s
+  job_types:
+    - "journal_analyze"
+    - "mtg_analyze"
+  claim_limit: 1
+  stale_lock_threshold: 5m
+
+database:
+  url: "postgres://conduit:conduit_dev@localhost:5432/conduit?sslmode=disable"
+  max_conns: 10
+  min_conns: 2
+  max_conn_lifetime: 1h
+  max_conn_idle_time: 30m
+
+llm:
+  provider: "openai"  # openai, anthropic, ollama, openai-compatible
+  model: "gpt-4o-mini"
+  api_key: "${LLM_API_KEY}"
+  endpoint: "${LLM_ENDPOINT}"
+  temperature: 0.3
+  max_tokens: 2000
+  timeout: 60s
+  # Provider-specific
+  ollama:
+    host: "http://host.docker.internal:11434"
+
+retry:
+  max_retries: 3
+  base_delay: 30s
+  max_delay: 10m
+
+logging:
+  level: "info"
+  pretty: false
+  file_path: ""
+  max_size_mb: 10
+  max_backups: 3
+  max_age_days: 7
+
+prompts:
+  directory: "prompts"

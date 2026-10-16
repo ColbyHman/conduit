@@ -27,13 +27,15 @@ services:
     environment:
       DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
       PORT: 8080
+      LOG_LEVEL: "info"
+      LOG_PRETTY: "true"
     ports:
       - "8080:8080"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./ai-gateway:/app
+      - ./ai-gateway/config.yaml:/app/config.yaml:ro
     restart: unless-stopped
 
   worker:
@@ -44,14 +46,20 @@ services:
     environment:
       DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
       WORKER_ID: "worker-1"
+      LLM_PROVIDER: "openai"
+      LLM_MODEL: "gpt-4o-mini"
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_ENDPOINT: ${LLM_ENDPOINT:-}
-      LLM_MODEL: ${LLM_MODEL:-gpt-4}
+      LLM_TEMPERATURE: "0.3"
+      WORKER_POLL_INTERVAL: "5s"
+      LOG_LEVEL: "info"
+      LOG_PRETTY: "true"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./worker:/app
+      - ./worker/config.yaml:/app/config.yaml:ro
+      - ./worker/prompts:/app/prompts:ro
     restart: unless-stopped
 
   whisper-worker:
@@ -63,12 +71,18 @@ services:
       DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
       WORKER_ID: "whisper-worker-1"
       WHISPER_URL: ${WHISPER_URL:-http://host.docker.internal:9000}
+      WHISPER_TIMEOUT: "300s"
+      WHISPER_MODEL: "medium"
+      LOG_LEVEL: "info"
+      LOG_PRETTY: "true"
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
-      - ./whisper-worker:/app
+      - ./whisper-worker/config.yaml:/app/config.yaml:ro
     restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
   pgadmin:
     image: dpage/pgadmin4:latest
