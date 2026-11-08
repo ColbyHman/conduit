@@ -77,6 +77,7 @@ func main() {
 	router := gin.New()
 	router.Use(gin.Recovery())
 	router.Use(loggingMiddleware(logger))
+	router.Use(corsMiddleware())
 
 	// Routes
 	router.GET("/health", jobHandler.Health)
@@ -154,5 +155,29 @@ func loggingMiddleware(logger *log.Logger) gin.HandlerFunc {
 			Dur("latency", time.Since(start)).
 			Str("client_ip", c.ClientIP()).
 			Msg("HTTP request")
+	}
+}
+
+// corsMiddleware allows the ai-finance-risk-analysis frontend (any
+// localhost dev port, or a configured origin) to call this API
+// directly from the browser in live mode (ADR 0015). Permissive by
+// design for this demo gateway — tighten to an explicit origin
+// allowlist before any real multi-tenant deployment.
+func corsMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		origin := c.GetHeader("Origin")
+		if origin != "" {
+			c.Header("Access-Control-Allow-Origin", origin)
+		} else {
+			c.Header("Access-Control-Allow-Origin", "*")
+		}
+		c.Header("Access-Control-Allow-Methods", "GET, POST, PATCH, DELETE, OPTIONS")
+		c.Header("Access-Control-Allow-Headers", "Content-Type, Idempotency-Key")
+		c.Header("Vary", "Origin")
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(http.StatusNoContent)
+			return
+		}
+		c.Next()
 	}
 }
