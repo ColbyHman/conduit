@@ -15,6 +15,7 @@ type Config struct {
 	Database    DatabaseConfig    `yaml:"database"`
 	Logging     log.Config        `yaml:"logging"`
 	Idempotency IdempotencyConfig `yaml:"idempotency"`
+	Finance     FinanceConfig     `yaml:"finance"`
 }
 
 // ServerConfig holds HTTP server configuration
@@ -38,6 +39,11 @@ type DatabaseConfig struct {
 type IdempotencyConfig struct {
 	HeaderName   string `yaml:"header_name"`
 	MaxKeyLength int    `yaml:"max_key_length"`
+}
+
+// FinanceConfig holds the EDGAR ticker-validation client configuration (ADR 0015)
+type FinanceConfig struct {
+	EdgarUserAgent string `yaml:"edgar_user_agent"`
 }
 
 // Load loads configuration from file and environment variables
@@ -88,6 +94,9 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("IDEMPOTENCY_HEADER"); v != "" {
 		cfg.Idempotency.HeaderName = v
+	}
+	if v := os.Getenv("EDGAR_USER_AGENT"); v != "" {
+		cfg.Finance.EdgarUserAgent = v
 	}
 
 	return cfg, nil

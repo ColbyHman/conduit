@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/conduit/pkg/log"
@@ -145,7 +146,7 @@ func (s *JobStore) ClaimJob(ctx context.Context, workerID string, jobTypes []mod
 		RETURNING id, job_type, status, payload, result, error, idempotency_key,
 		          attempt_count, max_retries, next_retry_at, locked_at, locked_by,
 		          created_at, updated_at, completed_at
-	`, placeholders)
+	`, strings.Join(placeholders, ","))
 
 	job := &models.Job{}
 	err := s.pool.QueryRow(ctx, query, args...).Scan(
@@ -264,9 +265,9 @@ func (s *JobStore) CleanupStaleJobs(ctx context.Context, staleThreshold time.Dur
 		    locked_by = NULL,
 		    updated_at = NOW()
 		WHERE status = 'processing'
-		  AND locked_at < NOW() - $1
+		  AND locked_at < NOW() - ($1 * interval '1 second')
 	`
-	cmd, err := s.pool.Exec(ctx, query, staleThreshold)
+	cmd, err := s.pool.Exec(ctx, query, staleThreshold.Seconds())
 	if err != nil {
 		return 0, fmt.Errorf("cleanup stale jobs: %w", err)
 	}

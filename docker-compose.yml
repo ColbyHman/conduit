@@ -54,12 +54,31 @@ services:
       WORKER_POLL_INTERVAL: "5s"
       LOG_LEVEL: "info"
       LOG_PRETTY: "true"
+      EDGAR_USER_AGENT: "${EDGAR_USER_AGENT:-Conduit-finance-ingest/0.1 (contact ops@conduit.local)}"
+      FINNHUB_API_KEY: ${FINNHUB_API_KEY:-}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./worker/config.yaml:/app/config.yaml:ro
       - ./worker/prompts:/app/prompts:ro
+    restart: unless-stopped
+
+  scheduler:
+    build:
+      context: ./scheduler
+      dockerfile: Dockerfile
+    container_name: conduit-scheduler
+    environment:
+      DATABASE_URL: "postgres://conduit:conduit_dev@postgres:5432/conduit?sslmode=disable"
+      SCHEDULER_POLL_INTERVAL: "30s"
+      LOG_LEVEL: "info"
+      LOG_PRETTY: "true"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./scheduler/config.yaml:/app/config.yaml:ro
     restart: unless-stopped
 
   whisper-worker:

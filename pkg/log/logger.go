@@ -10,7 +10,7 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/pkgerrors"
-	gopkg.in/natefinch/lumberjack.v2
+	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 )
 
 // Context keys for structured logging
@@ -87,22 +87,26 @@ func New(cfg Config) *Logger {
 
 // WithJobID adds job_id to log context
 func (l *Logger) WithJobID(jobID string) *Logger {
-	return &Logger{Logger: l.Logger.With().Str("job_id", jobID).Logger()}
+	logger := l.Logger.With().Str("job_id", jobID).Logger()
+	return &Logger{Logger: &logger}
 }
 
 // WithWorkerID adds worker_id to log context
 func (l *Logger) WithWorkerID(workerID string) *Logger {
-	return &Logger{Logger: l.Logger.With().Str("worker_id", workerID).Logger()}
+	logger := l.Logger.With().Str("worker_id", workerID).Logger()
+	return &Logger{Logger: &logger}
 }
 
 // WithHandler adds handler name to log context
 func (l *Logger) WithHandler(handler string) *Logger {
-	return &Logger{Logger: l.Logger.With().Str("handler", handler).Logger()}
+	logger := l.Logger.With().Str("handler", handler).Logger()
+	return &Logger{Logger: &logger}
 }
 
 // WithAttempt adds attempt number to log context
 func (l *Logger) WithAttempt(attempt int) *Logger {
-	return &Logger{Logger: l.Logger.With().Int("attempt", attempt).Logger()}
+	logger := l.Logger.With().Int("attempt", attempt).Logger()
+	return &Logger{Logger: &logger}
 }
 
 // FromContext extracts logger from context or returns background logger

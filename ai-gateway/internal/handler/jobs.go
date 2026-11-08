@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"time"
@@ -198,7 +199,7 @@ func (h *JobHandler) Health(c *gin.Context) {
 
 func (h *JobHandler) validatePayload(jobType models.JobType, payload models.JSONB) error {
 	var m map[string]interface{}
-	if err := payload.UnmarshalJSON(); err != nil {
+	if err := json.Unmarshal(payload, &m); err != nil {
 		return err
 	}
 

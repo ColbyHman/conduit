@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"os/signal"
@@ -9,6 +10,7 @@ import (
 	"time"
 
 	"github.com/conduit/ai-gateway/internal/config"
+	"github.com/conduit/ai-gateway/internal/finance"
 	"github.com/conduit/ai-gateway/internal/handler"
 	"github.com/conduit/ai-gateway/internal/store"
 	"github.com/conduit/pkg/log"
@@ -58,6 +60,13 @@ func main() {
 		cfg.Idempotency.MaxKeyLength,
 	)
 
+	// ADR 0007 / ADR 0015: schedules + finance domain handlers
+	scheduleStore := store.NewScheduleStore(pool, logger)
+	scheduleHandler := handler.NewScheduleHandler(scheduleStore, logger)
+	financeStore := store.NewFinanceStore(pool, logger)
+	edgarClient := finance.NewEdgarClient(cfg.Finance.EdgarUserAgent)
+	financeHandler := handler.NewFinanceHandler(financeStore, scheduleStore, jobStore, edgarClient, logger)
+
 	// Setup Gin router
 	if cfg.Logging.Level == "debug" {
 		gin.SetMode(gin.DebugMode)
@@ -83,9 +92,20 @@ func main() {
 		}
 	}
 
+	// ADR 0007: admin visibility into schedules
+	router.GET("/schedules", scheduleHandler.ListSchedules)
+	router.PATCH("/schedules/:id", scheduleHandler.PatchSchedule)
+
+	// ADR 0015: live finance domain
+	router.GET("/finance/holdings", financeHandler.ListHoldings)
+	router.POST("/finance/holdings", financeHandler.CreateHolding)
+	router.DELETE("/finance/holdings/:ticker", financeHandler.DeleteHolding)
+	router.POST("/finance/holdings/:ticker/refresh", financeHandler.RefreshHolding)
+	router.GET("/finance/triage", financeHandler.GetTriage)
+
 	// Start server
 	srv := &http.Server{
-		Addr:         ":" + string(rune(cfg.Server.Port)),
+		Addr:         fmt.Sprintf(":%d", cfg.Server.Port),
 		Handler:      router,
 		ReadTimeout:  cfg.Server.ReadTimeout,
 		WriteTimeout: cfg.Server.WriteTimeout,

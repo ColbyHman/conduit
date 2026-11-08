@@ -25,3 +25,6 @@ logging:
 idempotency:
   header_name: "Idempotency-Key"
   max_key_length: 64
+
+finance:
+  edgar_user_agent: "${EDGAR_USER_AGENT}"

@@ -125,7 +125,7 @@ func (h *JournalAnalyzeHandler) Handle(ctx context.Context, job *models.Job, llm
 
 	// Parse payload
 	var payload models.JournalAnalyzePayload
-	if err := job.Payload.UnmarshalJSON(); err != nil {
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
 

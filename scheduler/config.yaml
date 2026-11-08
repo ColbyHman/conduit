@@ -1,0 +1,20 @@
+# Scheduler Configuration
+# Environment variables override these values
+
+scheduler:
+  poll_interval: 30s
+
+database:
+  url: "postgres://conduit:conduit_dev@localhost:5432/conduit?sslmode=disable"
+  max_conns: 5
+  min_conns: 1
+  max_conn_lifetime: 1h
+  max_conn_idle_time: 30m
+
+logging:
+  level: "info"
+  pretty: false
+  file_path: ""
+  max_size_mb: 10
+  max_backups: 3
+  max_age_days: 7

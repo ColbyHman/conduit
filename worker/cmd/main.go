@@ -11,6 +11,7 @@ import (
 	"github.com/conduit/pkg/log"
 	"github.com/conduit/pkg/models"
 	"github.com/conduit/worker/internal/config"
+	"github.com/conduit/worker/internal/finance"
 	"github.com/conduit/worker/internal/handler"
 	"github.com/conduit/worker/internal/llm"
 	"github.com/conduit/worker/internal/store"
@@ -89,8 +90,17 @@ func main() {
 	// Register handlers
 	journalHandler := handler.NewJournalAnalyzeHandler(jobStore, prompts, logger, cfg.LLM.MaxTokens)
 	mtgHandler := handler.NewMTGAnalyzeHandler(jobStore, prompts, logger, cfg.LLM.MaxTokens)
+	edgarClient := finance.NewEdgarClient(cfg.Finance.EdgarUserAgent)
+	finnhubClient := finance.NewFinnhubClient(cfg.Finance.FinnhubAPIKey) // nil when FINNHUB_API_KEY unset — ADR 0015 degrade-gracefully path
+	financeIngestHandler := handler.NewFinanceIngestHandler(jobStore, logger, edgarClient, finnhubClient)
+	financeAnalyzeHandler := handler.NewFinanceAnalyzeHandler(jobStore, prompts, logger, cfg.LLM.MaxTokens)
 	handler.Register(journalHandler)
 	handler.Register(mtgHandler)
+	handler.Register(financeIngestHandler)
+	handler.Register(financeAnalyzeHandler)
+	if cfg.Finance.FinnhubAPIKey == "" {
+		logger.Info().Msg("FINNHUB_API_KEY not set — finance_ingest will use SEC EDGAR only")
+	}
 
 	// Convert job types
 	jobTypes := make([]models.JobType, len(cfg.Worker.JobTypes))

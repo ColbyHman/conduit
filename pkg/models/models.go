@@ -9,6 +9,21 @@ import (
 	"github.com/google/uuid"
 )
 
+// Job lifecycle event type constants, mirrored here (not imported from
+// pkg/log) to avoid a models -> log import cycle; values match
+// pkg/log's Event* constants exactly.
+const (
+	EventReceived        = "received"
+	EventClaimed         = "claimed"
+	EventProcessingStart = "processing_start"
+	EventLLMRequest      = "llm_request"
+	EventLLMResponse     = "llm_response"
+	EventCompleted       = "completed"
+	EventFailed          = "failed"
+	EventRetryScheduled  = "retry_scheduled"
+	EventDeadLetter      = "dead_letter"
+)
+
 // JobType represents the type of job
 type JobType string
 
@@ -16,6 +31,8 @@ const (
 	JobTypeJournalTranscribe JobType = "journal_transcribe"
 	JobTypeJournalAnalyze    JobType = "journal_analyze"
 	JobTypeMTGAnalyze        JobType = "mtg_analyze"
+	JobTypeFinanceIngest     JobType = "finance_ingest"
+	JobTypeFinanceAnalyze    JobType = "finance_analyze"
 )
 
 // JobStatus represents the status of a job
@@ -75,12 +92,24 @@ func (j *JSONB) Scan(value interface{}) error {
 		*j = JSONB(`null`)
 		return nil
 	}
-	bytes, ok := value.([]byte)
-	if !ok {
-		return errors.New("type assertion to []byte failed")
+	switch v := value.(type) {
+	case []byte:
+		*j = JSONB(v)
+		return nil
+	case string:
+		*j = JSONB(v)
+		return nil
+	default:
+		// pgx's native driver sometimes hands sql.Scanner-compatible
+		// types a pre-decoded Go value (map/slice/etc.) instead of raw
+		// bytes for jsonb columns; re-marshal it back to JSON bytes.
+		data, err := json.Marshal(v)
+		if err != nil {
+			return errors.New("JSONB: unsupported scan source type")
+		}
+		*j = JSONB(data)
+		return nil
 	}
-	*j = JSONB(bytes)
-	return nil
 }
 
 // MarshalJSON implements json.Marshaler
@@ -102,7 +131,7 @@ func (j *JSONB) UnmarshalJSON(data []byte) error {
 
 // String returns the JSON string representation
 func (j JSONB) String() string {
-	return json.RawMessage(j).String()
+	return string(j)
 }
 
 // JournalTranscribePayload is the payload for journal_transcribe jobs
@@ -185,6 +214,95 @@ type MTGAnalysis struct {
 	PriceUSD      float64  `json:"price_usd,omitempty"`
 	Legalities    map[string]string `json:"legalities,omitempty"`
 	Keywords      []string `json:"keywords,omitempty"`
+}
+
+// FinanceIngestPayload is the payload for finance_ingest jobs
+type FinanceIngestPayload struct {
+	Ticker string `json:"ticker"`
+}
+
+// FinanceAnalyzePayload is the payload for finance_analyze jobs
+type FinanceAnalyzePayload struct {
+	Ticker      string   `json:"ticker"`
+	DocumentIDs []string `json:"document_ids"`
+}
+
+// FinanceIngestResult is the result of a finance_ingest job
+type FinanceIngestResult struct {
+	Ticker          string   `json:"ticker"`
+	DocumentsFound  int      `json:"documents_found"`
+	NewDocumentIDs  []string `json:"new_document_ids"`
+	FinnhubUsed     bool     `json:"finnhub_used"`
+	Note            string   `json:"note,omitempty"`
+}
+
+// FinanceCitation is a single cited source in a finance_analyses row
+type FinanceCitation struct {
+	DocumentID string `json:"document_id"`
+	URL        string `json:"url"`
+	Excerpt    string `json:"excerpt"`
+}
+
+// FinanceAnalyzeResult is the result of a finance_analyze job
+type FinanceAnalyzeResult struct {
+	Ticker      string            `json:"ticker"`
+	Summary     string            `json:"summary"`
+	EventType   string            `json:"event_type"`
+	Sentiment   string            `json:"sentiment"`
+	Materiality int               `json:"materiality"`
+	Citations   []FinanceCitation `json:"citations"`
+}
+
+// Schedule represents a recurring job schedule (ADR 0007)
+type Schedule struct {
+	ID               uuid.UUID  `json:"id" db:"id"`
+	Name             string     `json:"name" db:"name"`
+	JobType          JobType    `json:"job_type" db:"job_type"`
+	PayloadTemplate  JSONB      `json:"payload_template" db:"payload_template"`
+	IntervalSeconds  int        `json:"interval_seconds" db:"interval_seconds"`
+	Enabled          bool       `json:"enabled" db:"enabled"`
+	NextRunAt        time.Time  `json:"next_run_at" db:"next_run_at"`
+	LastRunAt        *time.Time `json:"last_run_at,omitempty" db:"last_run_at"`
+	LastJobID        *uuid.UUID `json:"last_job_id,omitempty" db:"last_job_id"`
+	CreatedAt        time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at" db:"updated_at"`
+}
+
+// FinanceHolding represents a tracked security (ADR 0015)
+type FinanceHolding struct {
+	ID        uuid.UUID `json:"id" db:"id"`
+	Ticker    string    `json:"ticker" db:"ticker"`
+	AssetType string    `json:"asset_type" db:"asset_type"`
+	Active    bool      `json:"active" db:"active"`
+	CreatedAt time.Time `json:"created_at" db:"created_at"`
+	UpdatedAt time.Time `json:"updated_at" db:"updated_at"`
+}
+
+// FinanceDocument represents a raw ingested filing or news article
+type FinanceDocument struct {
+	ID          uuid.UUID  `json:"id" db:"id"`
+	Ticker      string     `json:"ticker" db:"ticker"`
+	Source      string     `json:"source" db:"source"`
+	DocType     *string    `json:"doc_type,omitempty" db:"doc_type"`
+	URL         *string    `json:"url,omitempty" db:"url"`
+	Title       *string    `json:"title,omitempty" db:"title"`
+	PublishedAt *time.Time `json:"published_at,omitempty" db:"published_at"`
+	RawText     *string    `json:"raw_text,omitempty" db:"raw_text"`
+	FetchedAt   time.Time  `json:"fetched_at" db:"fetched_at"`
+	JobID       *uuid.UUID `json:"job_id,omitempty" db:"job_id"`
+}
+
+// FinanceAnalysis represents one finance_analyze run's result row
+type FinanceAnalysis struct {
+	ID          uuid.UUID `json:"id" db:"id"`
+	Ticker      string    `json:"ticker" db:"ticker"`
+	Summary     string    `json:"summary" db:"summary"`
+	EventType   *string   `json:"event_type,omitempty" db:"event_type"`
+	Sentiment   *string   `json:"sentiment,omitempty" db:"sentiment"`
+	Materiality *int      `json:"materiality,omitempty" db:"materiality"`
+	Citations   JSONB     `json:"citations" db:"citations"`
+	JobID       *uuid.UUID `json:"job_id,omitempty" db:"job_id"`
+	CreatedAt   time.Time `json:"created_at" db:"created_at"`
 }
 
 // JobEvent represents an event in the job lifecycle

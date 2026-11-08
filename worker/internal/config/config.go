@@ -14,6 +14,7 @@ type Config struct {
 	Worker    WorkerConfig    `yaml:"worker"`
 	Database  DatabaseConfig  `yaml:"database"`
 	LLM       LLMConfig       `yaml:"llm"`
+	Finance   FinanceConfig   `yaml:"finance"`
 	Retry     RetryConfig     `yaml:"retry"`
 	Logging   log.Config      `yaml:"logging"`
 	Prompts   PromptsConfig   `yaml:"prompts"`
@@ -49,6 +50,12 @@ type LLMConfig struct {
 	Ollama    OllamaConfig   `yaml:"ollama"`
 }
 
+// FinanceConfig holds finance_ingest/finance_analyze specific configuration (ADR 0015)
+type FinanceConfig struct {
+	EdgarUserAgent string `yaml:"edgar_user_agent"` // MUST include contact info per SEC's fair-access policy
+	FinnhubAPIKey  string `yaml:"finnhub_api_key"`  // optional — empty means Finnhub is skipped (ADR 0015)
+}
+
 // OllamaConfig holds Ollama-specific configuration
 type OllamaConfig struct {
 	Host string `yaml:"host"`
@@ -72,7 +79,7 @@ func Load(path string) (*Config, error) {
 
 	// Set defaults
 	cfg.Worker.PollInterval = 5 * time.Second
-	cfg.Worker.JobTypes = []string{"journal_analyze", "mtg_analyze"}
+	cfg.Worker.JobTypes = []string{"journal_analyze", "mtg_analyze", "finance_ingest", "finance_analyze"}
 	cfg.Worker.ClaimLimit = 1
 	cfg.Worker.StaleLockThreshold = 5 * time.Minute
 
@@ -138,6 +145,12 @@ func Load(path string) (*Config, error) {
 	}
 	if v := os.Getenv("LOG_PRETTY"); v == "true" {
 		cfg.Logging.Pretty = true
+	}
+	if v := os.Getenv("EDGAR_USER_AGENT"); v != "" {
+		cfg.Finance.EdgarUserAgent = v
+	}
+	if v := os.Getenv("FINNHUB_API_KEY"); v != "" {
+		cfg.Finance.FinnhubAPIKey = v
 	}
 
 	return cfg, nil

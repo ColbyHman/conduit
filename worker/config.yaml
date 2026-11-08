@@ -7,6 +7,8 @@ worker:
   job_types:
     - "journal_analyze"
     - "mtg_analyze"
+    - "finance_ingest"
+    - "finance_analyze"
   claim_limit: 1
   stale_lock_threshold: 5m
 
@@ -33,6 +35,14 @@ retry:
   max_retries: 3
   base_delay: 30s
   max_delay: 10m
+
+# ADR 0015: finance_ingest configuration. EDGAR_USER_AGENT MUST
+# include contact info per SEC's fair-access policy. FINNHUB_API_KEY
+# is optional — leave blank (as below) to skip Finnhub and use
+# EDGAR-only data; set via the FINNHUB_API_KEY env var to enable it.
+finance:
+  edgar_user_agent: "${EDGAR_USER_AGENT}"
+  finnhub_api_key: ""
 
 logging:
   level: "info"

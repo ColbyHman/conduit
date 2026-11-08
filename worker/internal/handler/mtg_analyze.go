@@ -44,7 +44,7 @@ func (h *MTGAnalyzeHandler) Handle(ctx context.Context, job *models.Job, llmClie
 
 	// Parse payload
 	var payload models.MTGAnalyzePayload
-	if err := job.Payload.UnmarshalJSON(); err != nil {
+	if err := json.Unmarshal(job.Payload, &payload); err != nil {
 		return nil, fmt.Errorf("unmarshal payload: %w", err)
 	}
 
